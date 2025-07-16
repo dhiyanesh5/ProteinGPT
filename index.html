@@ -649,6 +649,16 @@
                     <button id="clearChat" class="voice-button">🗑️ Clear</button>
                 </div>
 
+                <div class="vr-controls" style="margin-bottom: 15px;">
+                    <button id="vrButton" class="voice-button" style="background: linear-gradient(135deg, #8B00FF, #9932CC); min-width: 150px;">
+                        🥽 Enter VR
+                    </button>
+                    <span id="vrStatus" style="margin-left: 10px; color: #cccccc; font-size: 0.9rem;">
+                        Checking VR support...
+                    </span>
+                </div>
+
+
                 <div class="status-indicator">
                     <div id="statusDot" class="status-dot"></div>
                     <span id="statusText">Ready to chat...</span>
@@ -737,7 +747,13 @@
         let isListening = false;
         let currentProtein = null;
         let currentLanguage = 'en-US';
-        let currentInputMode = 'voice'; // 'voice' or 'text'
+        let currentInputMode = 'voice';
+
+        // XR/VR variables
+        let xrSession = null;
+        let isVRMode = false;
+        let vrButton;
+        let controller1, controller2;
 
         // EXPANDED Protein Knowledge Base - 15+ Proteins
         const proteinDatabase = {
@@ -1156,7 +1172,8 @@
             initializeMolecularViewer();
             setupEventListeners();
             setupTextInput();
-            addMessage('ai', '✅ ProteinGPT Enhanced initialized! Database loaded with 15+ proteins, disease info, drug targets, and multilingual support. Ready for voice & text commands!');
+            initializeWebXR(); // NEW: Initialize VR support
+            addMessage('ai', '✅ ProteinGPT Enhanced with VR support! Click "Enter VR" to start the immersive experience!');
         }
 
         function checkBrowserCompatibility() {
@@ -1203,7 +1220,6 @@
             }
         }
 
-        // Speech Recognition Setup
         function initializeSpeechRecognition() {
             if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
                 addMessage('ai', '❌ Speech recognition not supported. Please use text input.');
@@ -1244,6 +1260,19 @@
 
                 if (finalTranscript.trim()) {
                     processCommand(finalTranscript.trim());
+                    
+                    // In VR mode, automatically restart listening
+                    if (isVRMode) {
+                        setTimeout(() => {
+                            if (!isListening) {
+                                try {
+                                    recognition.start();
+                                } catch (e) {
+                                    console.log('Voice recognition restart failed');
+                                }
+                            }
+                        }, 1000);
+                    }
                 }
             };
 
@@ -1266,7 +1295,21 @@
                         errorMessage = `❌ Speech error: ${event.error}`;
                         updateStatus(false, `Error: ${event.error}`);
                 }
-                addMessage('ai', errorMessage);
+                
+                if (!isVRMode) {
+                    addMessage('ai', errorMessage);
+                }
+                
+                // In VR mode, try to restart automatically
+                if (isVRMode && event.error !== 'not-allowed') {
+                    setTimeout(() => {
+                        try {
+                            recognition.start();
+                        } catch (e) {
+                            console.log('Auto-restart failed');
+                        }
+                    }, 2000);
+                }
             };
 
             recognition.onend = function() {
@@ -1274,6 +1317,17 @@
                 updateStatus(false, getCurrentText('ready'));
                 document.getElementById('voiceButton').classList.remove('active');
                 document.getElementById('voiceButton').textContent = '🎤 Voice';
+                
+                // In VR mode, automatically restart voice recognition
+                if (isVRMode) {
+                    setTimeout(() => {
+                        try {
+                            recognition.start();
+                        } catch (e) {
+                            console.log('Voice recognition auto-restart failed');
+                        }
+                    }, 500);
+                }
             };
         }
 
@@ -1344,21 +1398,25 @@
             
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             
+            // IMPORTANT: Enable XR support in renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(canvas.clientWidth, canvas.clientHeight);
             renderer.setClearColor(0x0d1117, 1);
+            renderer.xr.enabled = true; // Enable WebXR
+            
             canvas.appendChild(renderer.domElement);
             
-            // Enhanced lighting
-            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            // Enhanced lighting for VR
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
             scene.add(ambientLight);
             
-            const directionalLight = new THREE.DirectionalLight(0xff8c00, 1);
+            const directionalLight = new THREE.DirectionalLight(0xff8c00, 1.2);
             directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
             scene.add(directionalLight);
             
-            const pointLight = new THREE.PointLight(0xff6b47, 0.5);
+            const pointLight = new THREE.PointLight(0xff6b47, 0.7);
             pointLight.position.set(-10, -10, -5);
             scene.add(pointLight);
             
@@ -1368,14 +1426,16 @@
             camera.position.z = 15;
             
             setupViewerControls();
-            animate();
+            
+            // Use setAnimationLoop for VR compatibility
+            renderer.setAnimationLoop(animate);
             
             // Load default protein
             setTimeout(() => {
                 loadProtein('hemoglobin');
             }, 1000);
         }
-        
+                
         function setupViewerControls() {
             const canvas = renderer.domElement;
             let isMouseDown = false;
@@ -1411,9 +1471,131 @@
             });
         }
         
-        function animate() {
-            requestAnimationFrame(animate);
+        function initializeWebXR() {
+            vrButton = document.getElementById('vrButton');
+            const vrStatus = document.getElementById('vrStatus');
             
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+                    if (supported) {
+                        vrStatus.textContent = 'VR Ready! 🥽';
+                        vrButton.disabled = false;
+                        vrButton.onclick = toggleVR;
+                    } else {
+                        vrStatus.textContent = 'VR not supported on this device 😞';
+                        vrButton.disabled = true;
+                        vrButton.style.opacity = '0.5';
+                    }
+                }).catch(() => {
+                    vrStatus.textContent = 'VR not available 📱';
+                    vrButton.disabled = true;
+                    vrButton.style.opacity = '0.5';
+                });
+            } else {
+                vrStatus.textContent = 'WebXR not supported 📱';
+                vrButton.disabled = true;
+                vrButton.style.opacity = '0.5';
+            }
+        }
+
+        async function toggleVR() {
+            if (xrSession === null) {
+                // Enter VR
+                try {
+                    vrButton.textContent = '🔄 Entering VR...';
+                    xrSession = await navigator.xr.requestSession('immersive-vr', {
+                        optionalFeatures: ['hand-tracking', 'local-floor']
+                    });
+                    
+                    await onSessionStarted();
+                    
+                } catch (error) {
+                    console.error('Failed to enter VR:', error);
+                    addMessage('ai', '❌ Failed to enter VR. Make sure you\'re using Quest browser and have permission.');
+                    vrButton.textContent = '🥽 Enter VR';
+                }
+            } else {
+                // Exit VR
+                xrSession.end();
+            }
+        }
+
+        async function onSessionStarted() {
+            xrSession.addEventListener('end', onSessionEnded);
+            
+            // Enable XR rendering
+            await renderer.xr.setSession(xrSession);
+            renderer.xr.enabled = true;
+            
+            // Update button
+            vrButton.textContent = '🚪 Exit VR';
+            isVRMode = true;
+            
+            // Add XR controllers
+            setupVRControllers();
+            
+            addMessage('ai', '🥽 **VR MODE ACTIVATED!** Use voice commands: "show hemoglobin", "fluorescence mode", "load gfp"');
+            
+            // Auto-start voice recognition in VR
+            if (recognition && !isListening) {
+                setTimeout(() => {
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.log('Voice recognition already active');
+                    }
+                }, 1000);
+            }
+        }
+
+        function onSessionEnded() {
+            xrSession = null;
+            isVRMode = false;
+            vrButton.textContent = '🥽 Enter VR';
+            
+            // Disable XR rendering
+            renderer.xr.enabled = false;
+            
+            addMessage('ai', '👋 Exited VR mode. Click "Enter VR" to return to immersive experience!');
+        }
+
+        function setupVRControllers() {
+            // Add hand controllers for VR interaction
+            controller1 = renderer.xr.getController(0);
+            controller2 = renderer.xr.getController(1);
+            
+            scene.add(controller1);
+            scene.add(controller2);
+            
+            // Add simple laser pointers
+            const geometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 0, -1)
+            ]);
+            
+            const line1 = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xff0000 }));
+            const line2 = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x0000ff }));
+            
+            controller1.add(line1.clone());
+            controller2.add(line2.clone());
+            
+            // Controller events
+            controller1.addEventListener('select', onControllerSelect);
+            controller2.addEventListener('select', onControllerSelect);
+        }
+
+        function onControllerSelect(event) {
+            // Handle VR controller button press
+            console.log('VR controller selected');
+            
+            // Example: Load random protein on controller press
+            const proteins = Object.keys(proteinDatabase);
+            const randomProtein = proteins[Math.floor(Math.random() * proteins.length)];
+            loadProtein(randomProtein);
+        }
+
+        function animate() {
+            // This replaces requestAnimationFrame for VR compatibility
             if (proteinGroup) {
                 proteinGroup.rotation.y += 0.003;
             }
@@ -1427,9 +1609,8 @@
             document.getElementById('testButton').onclick = testSystem;
             document.getElementById('clearChat').onclick = clearChat;
             
-            // Window resize
             window.addEventListener('resize', () => {
-                if (camera && renderer) {
+                if (camera && renderer && !isVRMode) {
                     const canvas = document.getElementById('molecularCanvas');
                     camera.aspect = canvas.clientWidth / canvas.clientHeight;
                     camera.updateProjectionMatrix();
@@ -1661,6 +1842,7 @@
         }
 
         // Enhanced protein functions
+        // Enhanced protein loading for VR
         function loadProtein(proteinName) {
             const protein = proteinDatabase[proteinName];
             if (!protein) return;
@@ -1680,9 +1862,17 @@
                                 `${protein.name} loaded! ${protein.function}`;
                 
                 addMessage('ai', response);
+                
+                // In VR, position protein closer to user
+                if (isVRMode) {
+                    proteinGroup.position.set(0, 0, -3);
+                    proteinGroup.scale.set(0.5, 0.5, 0.5);
+                } else {
+                    proteinGroup.position.set(0, 0, 0);
+                    proteinGroup.scale.set(1, 1, 1);
+                }
             }, 1200);
         }
-
         function explainProteinDetailed(proteinName) {
             const protein = proteinDatabase[proteinName];
             if (!protein) return;
@@ -2197,7 +2387,7 @@
                 particle.material.opacity = 0.8 * (1 - progress);
                 
                 if (progress < 1) {
-                    requestAnimationFrame(animate);
+                    renderer.setAnimationLoop(animate); // VR-compatible animation
                 } else {
                     proteinGroup.remove(particle);
                 }
@@ -2467,6 +2657,9 @@
         window.onload = initializeApp;
         // Call this function after your initializeApp
         updateCommandsHelp();
+        
+        console.log('🥽 VR-Enhanced ProteinGPT loaded!');
+        console.log('Click "Enter VR" to start immersive experience!');
 
         console.log('🔬 VR Fluorescence Microscopy Extensions loaded!');
         console.log('Say "fluorescence mode" to activate!');
