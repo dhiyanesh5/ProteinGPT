@@ -356,6 +356,87 @@
             transition: all 0.3s ease;
         }
 
+        /* Atom Legend Styling */
+        #atomLegend {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 10px 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 140, 0, 0.2);
+            z-index: 1000;
+            color: #cccccc;
+        }
+
+        /* Model Switcher Styling */
+        #modelSwitcher {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 1000;
+        }
+
+        #modelSwitcher .model-btn {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 140, 0, 0.3);
+            color: #cccccc;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.8rem;
+            width: 120px;
+            text-align: center;
+        }
+
+        #modelSwitcher .model-btn:hover {
+            background: rgba(255, 140, 0, 0.2);
+            color: #ff8c00;
+        }
+
+        #modelSwitcher .model-btn.active {
+            background: #ff8c00;
+            color: white;
+            border-color: #ff8c00;
+            font-weight: bold;
+        }
+
+        #atomLegend h4 {
+            margin: 0 0 10px 0;
+            color: #ff8c00;
+            font-size: 0.9rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 140, 0, 0.2);
+            padding-bottom: 5px;
+        }
+
+        #atomLegend ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #atomLegend li {
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .color-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 1px solid #555;
+        }
+
         .protein-info:hover {
             max-height: 400px;
             max-width: 320px;
@@ -746,25 +827,45 @@
             <div class="molecular-viewer">
                 <div id="molecularCanvas"></div>
                 
+                <div id="atomLegend">
+                    <h4>Atom Legend (CPK)</h4>
+                    <ul>
+                        <li><span class="color-dot" style="background-color: #111111;"></span> Carbon (C)</li>
+                        <li><span class="color-dot" style="background-color: #ff2222;"></span> Oxygen (O)</li>
+                        <li><span class="color-dot" style="background-color: #2222ff;"></span> Nitrogen (N)</li>
+                        <li><span class="color-dot" style="background-color: #ffff33;"></span> Sulfur (S)</li>
+                        <li><span class="color-dot" style="background-color: #ffffff;"></span> Hydrogen (H)</li>
+                    </ul>
+                </div>
+
+                <div id="modelSwitcher">
+                    <button class="model-btn active" data-model="ball_and_stick">Ball & Stick</button>
+                    <button class="model-btn" data-model="space_filling">Space-filling</button>
+                    <button class="model-btn" data-model="backbone">Backbone</button>
+                </div>
+                
                 <div class="protein-info" id="proteinInfo" style="display: none;">
                     <h3 id="proteinName">Protein Name</h3>
-                    <p><strong>Function:</strong> <span id="proteinFunction">Function description...</span></p>
-                    <p><strong>Structure:</strong> <span id="proteinStructure">Structure details...</span></p>
-                    <p><strong>Location:</strong> <span id="proteinLocation">Location...</span></p>
-                    <p><strong>Diseases:</strong> <span id="proteinDiseases">Disease associations...</span></p>
-                    <p><strong>Drugs:</strong> <span id="proteinDrugs">Drug targets...</span></p>
+                    <p><strong>Function:</strong> <span id="proteinFunction"></span></p>
+                    <p><strong>Structure:</strong> <span id="proteinStructure"></span></p>
+                    <p><strong>Location:</strong> <span id="proteinLocation"></span></p>
+                    <p><strong>Diseases:</strong> <span id="proteinDiseases"></span></p>
+                    <p><strong>Drugs:</strong> <span id="proteinDrugs"></span></p>
                 </div>
 
                 <div class="loading" id="loadingIndicator">
                     <div class="spinner"></div>
-                    <p>Loading molecular structure...</p>
+                    <p>Loading 3D Model...</p>
                 </div>
+
             </div>
         </div>
     </div>
 
     <!-- Three.js for 3D molecular visualization -->
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/PDBLoader.js"></script>
 
     <script>
         // Global variables
@@ -773,6 +874,10 @@
         let currentProtein = null;
         let currentLanguage = 'en-US';
         let currentInputMode = 'voice';
+
+        // NEW: Add these state variables
+        let currentPdbData = null;
+        let currentViewModel = 'ball_and_stick';
 
         // XR/VR variables
         let xrSession = null;
@@ -1635,10 +1740,25 @@
         }
 
         // Event Listeners
+        // Event Listeners
         function setupEventListeners() {
             document.getElementById('voiceButton').onclick = toggleListening;
             document.getElementById('testButton').onclick = testSystem;
             document.getElementById('clearChat').onclick = clearChat;
+
+            // NEW: Add listeners for the model switcher
+            const modelButtons = document.querySelectorAll('#modelSwitcher .model-btn');
+            modelButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    // Update the active button style
+                    modelButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                    
+                    // Set the new view model and re-render
+                    currentViewModel = button.dataset.model;
+                    renderCurrentProtein();
+                });
+            });
             
             window.addEventListener('resize', () => {
                 if (camera && renderer && !isVRMode) {
@@ -1649,7 +1769,6 @@
                 }
             });
         }
-
         // Voice control functions
         function toggleListening() {
             if (!recognition) {
@@ -1872,37 +1991,151 @@
             return languageResponses[currentLang][key] || languageResponses['en'][key] || key;
         }
 
-        // Enhanced protein functions
-        // Enhanced protein loading for VR
-        function loadProtein(proteinName) {
-            const protein = proteinDatabase[proteinName];
-            if (!protein) return;
+        // NEW: PDB Loader and color data
+        const pdbLoader = new THREE.PDBLoader();
+        const CPK_COLORS = {
+            "H": 0xffffff, "C": 0x111111, "N": 0x2222ff, "O": 0xff2222,
+            "F": 0x33ff33, "CL": 0x33ff33, "BR": 0x992222, "I": 0x660066,
+            "HE": 0xffdddd, "NE": 0xffdddd, "AR": 0xffdddd, "P": 0xff9922,
+            "S": 0xffff33, "B": 0xdddd99, "LI": 0xdd44dd, "NA": 0xdd44dd,
+            "K": 0xdd44dd, "MG": 0x66dd66, "CA": 0x66dd66, "FE": 0xdd6622,
+            "default": 0xdddddd
+        };
 
-            showLoading(true);
-            currentProtein = proteinName;
+        // REPLACED: loadProtein function
+        // REPLACED: loadProtein function with label
+        // COMPLETE REPLACEMENT for rendering logic
+
+        // Master function to render the currently loaded protein
+        // Master function to render the currently loaded protein
+        function renderCurrentProtein() {
+            if (!currentPdbData) return;
 
             clearProtein();
+            // Re-center the group before drawing
+            currentPdbData.geometryAtoms.computeBoundingBox();
+            const boundingBox = currentPdbData.geometryAtoms.boundingBox;
+            boundingBox.getCenter(proteinGroup.position).multiplyScalar(-1);
 
-            setTimeout(() => {
-                createProteinVisualization(protein);
+            if (currentViewModel === 'ball_and_stick') {
+                renderBallAndStick(currentPdbData);
+            } else if (currentViewModel === 'space_filling') {
+                renderSpaceFilling(currentPdbData);
+            } else if (currentViewModel === 'backbone') {
+                renderBackbone(currentPdbData);
+            }
+            
+            const protein = proteinDatabase[currentProtein];
+            if (protein) {
+                // Pass the molecule's top Y-coordinate to the label function
+                const topY = boundingBox.max.y;
+                addProteinLabel(protein.name, topY);
+            }
+        }
+        // Style 1: Ball and Stick Renderer
+        function renderBallAndStick(pdb) {
+            const geometryAtoms = pdb.geometryAtoms;
+            const geometryBonds = pdb.geometryBonds;
+            const json = pdb.json;
+
+            // Atoms
+            const position = new THREE.Vector3();
+            const color = new THREE.Color();
+            for (let i = 0; i < geometryAtoms.attributes.position.count; i++) {
+                position.fromBufferAttribute(geometryAtoms.attributes.position, i);
+                const element = json.atoms[i][4].trim();
+                color.setHex(CPK_COLORS[element] || CPK_COLORS['default']);
+                const atom = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), new THREE.MeshPhongMaterial({ color: color }));
+                atom.position.copy(position);
+                proteinGroup.add(atom);
+            }
+
+            // Bonds
+            const start = new THREE.Vector3();
+            const end = new THREE.Vector3();
+            for (let i = 0; i < geometryBonds.attributes.position.count; i += 2) {
+                start.fromBufferAttribute(geometryBonds.attributes.position, i);
+                end.fromBufferAttribute(geometryBonds.attributes.position, i + 1);
+                const bond = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, start.distanceTo(end), 8, 1), new THREE.MeshPhongMaterial({ color: 0xcccccc }));
+                bond.position.copy(start).lerp(end, 0.5);
+                bond.lookAt(end);
+                proteinGroup.add(bond);
+            }
+        }
+
+        // Style 2: Space-filling Renderer
+        function renderSpaceFilling(pdb) {
+            const geometryAtoms = pdb.geometryAtoms;
+            const json = pdb.json;
+            const position = new THREE.Vector3();
+            const color = new THREE.Color();
+
+            for (let i = 0; i < geometryAtoms.attributes.position.count; i++) {
+                position.fromBufferAttribute(geometryAtoms.attributes.position, i);
+                const element = json.atoms[i][4].trim();
+                color.setHex(CPK_COLORS[element] || CPK_COLORS['default']);
+                const atom = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 16), new THREE.MeshPhongMaterial({ color: color }));
+                atom.position.copy(position);
+                proteinGroup.add(atom);
+            }
+        }
+        
+        // Style 3: Backbone Trace Renderer
+        // Style 3: Backbone Trace Renderer (Corrected)
+        function renderBackbone(pdb) {
+            const geometryAtoms = pdb.geometryAtoms;
+            const json = pdb.json;
+            const alphaCarbons = [];
+            const color = new THREE.Color(0xff8c00); // A single color for the backbone
+
+            // Loop over all atoms to find the alpha-carbons ('CA')
+            for (let i = 0; i < geometryAtoms.attributes.position.count; i++) {
+                // The atom name is at index [2] of the json.atoms array for each atom
+                const atomName = json.atoms[i][2].trim();
+                
+                if (atomName === 'CA') {
+                    const position = new THREE.Vector3();
+                    // Get the position from the main geometry data, which is more reliable
+                    position.fromBufferAttribute(geometryAtoms.attributes.position, i);
+                    alphaCarbons.push(position);
+                }
+            }
+
+            // Draw tubes between consecutive alpha-carbons
+            for (let i = 0; i < alphaCarbons.length - 1; i++) {
+                const start = alphaCarbons[i];
+                const end = alphaCarbons[i + 1];
+                const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, start.distanceTo(end), 8, 1), new THREE.MeshPhongMaterial({ color: color }));
+                tube.position.copy(start).lerp(end, 0.5);
+                tube.lookAt(end);
+                proteinGroup.add(tube);
+            }
+        }
+        // REWRITTEN loadProtein function
+        function loadProtein(proteinName) {
+            const protein = proteinDatabase[proteinName];
+            if (!protein || !protein.pdbId) {
+                addMessage('ai', `Sorry, I don't have a PDB ID for ${proteinName}.`);
+                return;
+            }
+            showLoading(true);
+            currentProtein = proteinName;
+            clearProtein();
+
+            const url = `https://files.rcsb.org/download/${protein.pdbId}.pdb`;
+            addMessage('ai', `Fetching 3D structure for ${protein.name} from PDB (${protein.pdbId})...`);
+
+            pdbLoader.load(url, function(pdb) {
+                currentPdbData = pdb; // Save the loaded data
+                renderCurrentProtein(); // Render the model for the first time
+                
                 showProteinInfo(protein);
                 showLoading(false);
-                
-                const currentLang = currentLanguage.includes('hi') ? 'hi' : currentLanguage.includes('ta') ? 'ta' : 'en';
-                const response = languageResponses[currentLang][proteinName] || 
-                                `${protein.name} loaded! ${protein.function}`;
-                
-                addMessage('ai', response);
-                
-                // In VR, position protein closer to user
-                if (isVRMode) {
-                    proteinGroup.position.set(0, 0, -3);
-                    proteinGroup.scale.set(0.5, 0.5, 0.5);
-                } else {
-                    proteinGroup.position.set(0, 0, 0);
-                    proteinGroup.scale.set(1, 1, 1);
-                }
-            }, 1200);
+                addMessage('ai', `${protein.name} loaded successfully! You can now switch between different 3D models.`);
+            }, null, function() {
+                showLoading(false);
+                addMessage('ai', `❌ Could not load the PDB file for ${protein.name}. The file might be too large or unavailable.`);
+            });
         }
         function explainProteinDetailed(proteinName) {
             const protein = proteinDatabase[proteinName];
@@ -2100,7 +2333,7 @@
             addProteinLabelAtPosition(protein.name, x, y + 3, z);
         }
 
-        function addProteinLabel(name) {
+        function addProteinLabel(name, yPosition) {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             canvas.width = 512;
@@ -2122,11 +2355,11 @@
             const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
             const sprite = new THREE.Sprite(spriteMaterial);
             sprite.scale.set(8, 2, 1);
-            sprite.position.set(0, 6, 0);
+            // Use the provided yPosition and add a margin of 2 units
+            sprite.position.set(0, yPosition + 2, 0); 
             
             proteinGroup.add(sprite);
         }
-
         function addProteinLabelAtPosition(name, x, y, z) {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
