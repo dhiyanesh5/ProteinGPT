@@ -399,6 +399,31 @@
             border-radius: 2px;
         }
 
+        /* Fullscreen VR Mode */
+        body.vr-active .molecular-viewer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: #000; /* Simple black background for VR */
+        }
+
+        body.vr-active #molecularCanvas {
+            border-radius: 0;
+        }
+
+        /* Hide other elements during VR */
+        body.vr-active .header,
+        body.vr-active .chat-panel,
+        body.vr-active .language-indicator {
+            display: none;
+        }
+
         /* Make it more mobile-friendly */
         @media (max-width: 768px) {
             .protein-info {
@@ -1522,6 +1547,9 @@
 
         async function onSessionStarted() {
             xrSession.addEventListener('end', onSessionEnded);
+
+            // Add this line to apply the fullscreen CSS
+            document.body.classList.add('vr-active');
             
             // Enable XR rendering
             await renderer.xr.setSession(xrSession);
@@ -1552,6 +1580,9 @@
             xrSession = null;
             isVRMode = false;
             vrButton.textContent = '🥽 Enter VR';
+
+            // Add this line to remove the fullscreen CSS
+            document.body.classList.remove('vr-active');
             
             // Disable XR rendering
             renderer.xr.enabled = false;
